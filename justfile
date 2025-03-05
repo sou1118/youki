@@ -69,6 +69,10 @@ test-rootless-podman:
 test-dind:
     {{ cwd }}/tests/dind/run.sh
 
+# test docker-in-docker works with youki v1
+test-dind-v1-lima:
+    {{ cwd }}/tests/dind/run-v1-lima.sh
+
 # run containerd integration tests
 containerd-test: youki-dev
     VAGRANT_VAGRANTFILE=Vagrantfile.containerd2youki vagrant up
