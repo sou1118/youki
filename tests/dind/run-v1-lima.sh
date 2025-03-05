@@ -55,6 +55,11 @@ timeout 30s \
   grep -q -m1 "/var/run/docker.sock" \
     <(docker logs -f youki-test-dind 2>&1)
 
+# コンテナの環境情報を取得
+echo "Container environment:"
+docker exec -i youki-test-dind sh -c "ls -la /etc/ | grep docker || echo 'Docker config directory not found'"
+docker exec -i youki-test-dind sh -c "find / -name 'docker' -type d 2>/dev/null || echo 'No docker directories found'"
+
 # ラッパースクリプトを作成
 echo "Creating youki wrapper script..."
 docker exec -i youki-test-dind sh -c "cat > /usr/bin/youki-wrapper << 'EOF'
@@ -80,7 +85,10 @@ EOF"
 # 実行権限を付与
 docker exec -i youki-test-dind chmod +x /usr/bin/youki-wrapper
 
-# daemon.jsonを作成
+# daemon.jsonを作成 (ディレクトリを先に作成)
+echo "Creating Docker configuration directory..."
+docker exec -i youki-test-dind mkdir -p /etc/docker
+
 echo "Creating daemon.json with youki-wrapper..."
 docker exec -i youki-test-dind sh -c "cat > /etc/docker/daemon.json << 'EOF'
 {
@@ -108,11 +116,6 @@ docker exec -i youki-test-dind ls -la /usr/bin/youki /usr/bin/youki-wrapper
 # youkiバイナリのテスト
 echo "Testing youki binary directly:"
 docker exec -i youki-test-dind /usr/bin/youki --version || echo "youki version test failed with exit code $?"
-
-# シンプルなテストケースで手動テスト
-echo "Manual container creation test:"
-docker exec -i youki-test-dind sh -c "mkdir -p /tmp/test-container"
-docker exec -i youki-test-dind sh -c "cd /tmp/test-container && /usr/bin/youki create test-container" || echo "Manual test failed with exit code $?"
 
 # テスト実行
 echo "Running test with youki runtime:"
