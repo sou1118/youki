@@ -44,6 +44,9 @@ if [ -d "/run/lima" ] || [ -d "$HOME/.lima" ]; then
   DOCKER_OPTS="$DOCKER_OPTS --network=lima:user-v2"
 fi
 
+# デバッグ用のボリュームマウント追加
+DOCKER_OPTS="$DOCKER_OPTS -v /tmp:/host-tmp"
+
 # Dockerコンテナを起動
 echo "Starting Docker-in-Docker container..."
 eval "docker run $DOCKER_OPTS docker:dind > /dev/null"
@@ -56,32 +59,22 @@ timeout 30s \
   grep -q -m1 "/var/run/docker.sock" \
     <(docker logs -f youki-test-dind 2>&1)
 
-# 環境情報の収集
-echo "Container environment information:"
-docker exec -i youki-test-dind cat /etc/os-release
-docker exec -i youki-test-dind uname -a
+# デバッグ用にログ設定を変更
+docker exec -i youki-test-dind sh -c "mkdir -p /etc/youki"
+docker exec -i youki-test-dind sh -c "echo -e '[log]\nlevel = \"debug\"\nfile = \"/host-tmp/youki-debug.log\"' > /etc/youki/config.toml"
 
-# デバッグ情報の収集
+# youkiが存在することを確認
 echo "Debug information:"
 docker exec -i youki-test-dind ls -la /usr/bin/youki
 docker exec -i youki-test-dind cat /etc/docker/daemon.json
+docker exec -i youki-test-dind sh -c "ls -la /etc/youki || echo 'No config dir'"
+docker exec -i youki-test-dind sh -c "cat /etc/youki/config.toml || echo 'No config file'"
 
-# youkiのデバッグ情報
-echo "Trying youki in debug mode:"
-docker exec -i youki-test-dind /usr/bin/youki --version || echo "youki version failed"
+# テスト実行（エラーになることを許容）
+echo "Running test with youki runtime (errors expected):"
+docker exec -i youki-test-dind docker run -q --runtime=youki hello-world || echo "Test failed as expected with exit code $?"
 
-# 依存関係の確認
-echo "Checking dynamic dependencies:"
-docker exec -i youki-test-dind sh -c "ldd /usr/bin/youki || echo 'ldd not found or not applicable'"
-
-# strace（あれば）での診断
-echo "Tracing youki execution (if strace available):"
-docker exec -i youki-test-dind sh -c "strace -f /usr/bin/youki --version 2>&1 || echo 'strace not available'"
-
-# Docker ログの確認
-echo "Docker logs:"
+# ログを収集
+echo "Collecting logs:"
+docker exec -i youki-test-dind sh -c "cat /host-tmp/youki-debug.log || echo 'No log file found'"
 docker exec -i youki-test-dind sh -c "cat /var/log/docker.log 2>/dev/null || journalctl -u docker --no-pager 2>/dev/null || echo 'Docker logs not found'"
-
-# テスト実行
-echo "Running test with youki runtime:"
-docker exec -i youki-test-dind docker run -q --runtime=youki hello-world || echo "Test failed with exit code $?"
