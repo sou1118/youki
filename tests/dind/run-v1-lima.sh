@@ -55,13 +55,14 @@ timeout 30s \
   grep -q -m1 "/var/run/docker.sock" \
     <(docker logs -f youki-test-dind 2>&1)
 
-# コンテナの環境情報を取得
-echo "Container environment:"
-docker exec -i youki-test-dind sh -c "ls -la /etc/ | grep docker || echo 'Docker config directory not found'"
-docker exec -i youki-test-dind sh -c "find / -name 'docker' -type d 2>/dev/null || echo 'No docker directories found'"
+# 必要なディレクトリを作成
+echo "Creating required directories..."
+docker exec -i youki-test-dind sh -c "mkdir -p /var/run/docker/runtime-runc/moby"
+docker exec -i youki-test-dind sh -c "mkdir -p /run/docker/containerd/daemon/io.containerd.runtime.v2.task/moby"
+docker exec -i youki-test-dind sh -c "chmod -R 755 /var/run/docker /run/docker"
 
 # ラッパースクリプトを作成
-echo "Creating youki wrapper script..."
+echo "Creating enhanced youki wrapper script..."
 docker exec -i youki-test-dind sh -c "cat > /usr/bin/youki-wrapper << 'EOF'
 #!/bin/sh
 set -e
@@ -74,6 +75,36 @@ echo \"[\$(date)] Running youki with args: \$@\" > /tmp/youki-logs/wrapper.log
 echo \"Environment:\" >> /tmp/youki-logs/wrapper.log
 env >> /tmp/youki-logs/wrapper.log
 
+# 必要なディレクトリが存在するか確認し、なければ作成
+ROOT_DIR=\$(echo \"\$@\" | grep -o -- '--root [^ ]*' | cut -d' ' -f2)
+if [ -n \"\$ROOT_DIR\" ] && [ ! -d \"\$ROOT_DIR\" ]; then
+  echo \"Creating required root directory: \$ROOT_DIR\" >> /tmp/youki-logs/wrapper.log
+  mkdir -p \"\$ROOT_DIR\"
+  chmod 755 \"\$ROOT_DIR\"
+fi
+
+LOG_PATH=\$(echo \"\$@\" | grep -o -- '--log [^ ]*' | cut -d' ' -f2)
+if [ -n \"\$LOG_PATH\" ]; then
+  LOG_DIR=\$(dirname \"\$LOG_PATH\")
+  if [ ! -d \"\$LOG_DIR\" ]; then
+    echo \"Creating log directory: \$LOG_DIR\" >> /tmp/youki-logs/wrapper.log
+    mkdir -p \"\$LOG_DIR\"
+    chmod 755 \"\$LOG_DIR\"
+  fi
+fi
+
+# コマンドとパラメータをログに記録
+echo \"Command parameters:\" >> /tmp/youki-logs/wrapper.log
+echo \"ROOT_DIR: \$ROOT_DIR\" >> /tmp/youki-logs/wrapper.log
+echo \"LOG_PATH: \$LOG_PATH\" >> /tmp/youki-logs/wrapper.log
+
+# システム情報をログに記録
+echo \"System information:\" >> /tmp/youki-logs/wrapper.log
+echo \"Mounts:\" >> /tmp/youki-logs/wrapper.log
+mount >> /tmp/youki-logs/wrapper.log
+echo \"Filesystem:\" >> /tmp/youki-logs/wrapper.log
+df -h >> /tmp/youki-logs/wrapper.log
+
 # youkiを実行し、出力をキャプチャ
 /usr/bin/youki \"\$@\" > /tmp/youki-logs/stdout.log 2> /tmp/youki-logs/stderr.log || {
   EXIT_CODE=\$?
@@ -85,7 +116,7 @@ EOF"
 # 実行権限を付与
 docker exec -i youki-test-dind chmod +x /usr/bin/youki-wrapper
 
-# daemon.jsonを作成 (ディレクトリを先に作成)
+# daemon.jsonを作成
 echo "Creating Docker configuration directory..."
 docker exec -i youki-test-dind mkdir -p /etc/docker
 
@@ -99,9 +130,6 @@ docker exec -i youki-test-dind sh -c "cat > /etc/docker/daemon.json << 'EOF'
   }
 }
 EOF"
-
-# 必要なディレクトリを作成
-docker exec -i youki-test-dind mkdir -p /tmp/youki-logs
 
 # Dockerデーモンを再起動
 echo "Restarting Docker daemon..."
@@ -128,3 +156,8 @@ echo "Stdout logs:"
 docker exec -i youki-test-dind cat /tmp/youki-logs/stdout.log || echo "No stdout logs found"
 echo "Stderr logs:"
 docker exec -i youki-test-dind cat /tmp/youki-logs/stderr.log || echo "No stderr logs found"
+
+# コンテナの状態確認
+echo "Container state:"
+docker exec -i youki-test-dind ls -la /var/run/docker/runtime-runc/moby || echo "Directory does not exist"
+docker exec -i youki-test-dind ls -la /run/docker/containerd/daemon/io.containerd.runtime.v2.task/moby || echo "Directory does not exist"git
