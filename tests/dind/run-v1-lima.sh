@@ -160,4 +160,4 @@ docker exec -i youki-test-dind cat /tmp/youki-logs/stderr.log || echo "No stderr
 # コンテナの状態確認
 echo "Container state:"
 docker exec -i youki-test-dind ls -la /var/run/docker/runtime-runc/moby || echo "Directory does not exist"
-docker exec -i youki-test-dind ls -la /run/docker/containerd/daemon/io.containerd.runtime.v2.task/moby || echo "Directory does not exist"git
+docker exec -i youki-test-dind ls -la /run/docker/containerd/daemon/io.containerd.runtime.v2.task/moby || echo "Directory does not exist"
