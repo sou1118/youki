@@ -222,6 +222,8 @@ jobs:
           # Ensure proper naming and permissions
           chmod +x ./youki
           ls -la ./youki
+      - run: ls -la
+      - run: pwd
       - name: Run tests
         run: lima just test-dind-v1-lima
 

@@ -59,8 +59,6 @@ timeout 30s \
 # デバッグ情報の収集
 echo "Debug information:"
 docker exec -i youki-test-dind ls -la /usr/bin/youki
-docker exec -i youki-test-dind chmod +x /usr/bin/youki
-docker exec -i youki-test-dind /usr/bin/youki --version || echo "youki version command failed"
 docker exec -i youki-test-dind cat /etc/docker/daemon.json
 
 # テスト実行
