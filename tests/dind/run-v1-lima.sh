@@ -35,7 +35,7 @@ echo "Using youki binary: ${YOUKI_BIN}"
 # 基本的なDocker実行オプション
 DOCKER_OPTS="--privileged -dq \
   --name youki-test-dind \
-  -v ${YOUKI_BIN}:/usr/bin/youki \
+  -v ${YOUKI_BIN}:/usr/bin/youki:ro \
   -v $ROOT/tests/dind/daemon.json:/etc/docker/daemon.json"
 
 # Lima環境検出
@@ -56,12 +56,32 @@ timeout 30s \
   grep -q -m1 "/var/run/docker.sock" \
     <(docker logs -f youki-test-dind 2>&1)
 
+# 環境情報の収集
+echo "Container environment information:"
+docker exec -i youki-test-dind cat /etc/os-release
+docker exec -i youki-test-dind uname -a
+
 # デバッグ情報の収集
 echo "Debug information:"
 docker exec -i youki-test-dind ls -la /usr/bin/youki
 docker exec -i youki-test-dind cat /etc/docker/daemon.json
 
+# youkiのデバッグ情報
+echo "Trying youki in debug mode:"
+docker exec -i youki-test-dind /usr/bin/youki --version || echo "youki version failed"
+
+# 依存関係の確認
+echo "Checking dynamic dependencies:"
+docker exec -i youki-test-dind sh -c "ldd /usr/bin/youki || echo 'ldd not found or not applicable'"
+
+# strace（あれば）での診断
+echo "Tracing youki execution (if strace available):"
+docker exec -i youki-test-dind sh -c "strace -f /usr/bin/youki --version 2>&1 || echo 'strace not available'"
+
+# Docker ログの確認
+echo "Docker logs:"
+docker exec -i youki-test-dind sh -c "cat /var/log/docker.log 2>/dev/null || journalctl -u docker --no-pager 2>/dev/null || echo 'Docker logs not found'"
+
 # テスト実行
-echo "Running test with youki runtime..."
-docker exec -i youki-test-dind \
-  docker run -q --runtime=youki hello-world
+echo "Running test with youki runtime:"
+docker exec -i youki-test-dind docker run -q --runtime=youki hello-world || echo "Test failed with exit code $?"
