@@ -35,17 +35,13 @@ echo "Using youki binary: ${YOUKI_BIN}"
 # 基本的なDocker実行オプション
 DOCKER_OPTS="--privileged -dq \
   --name youki-test-dind \
-  -v ${YOUKI_BIN}:/usr/bin/youki:ro \
-  -v $ROOT/tests/dind/daemon.json:/etc/docker/daemon.json"
+  -v ${YOUKI_BIN}:/usr/bin/youki:ro"
 
 # Lima環境検出
 if [ -d "/run/lima" ] || [ -d "$HOME/.lima" ]; then
   echo "Lima environment detected"
   DOCKER_OPTS="$DOCKER_OPTS --network=lima:user-v2"
 fi
-
-# デバッグ用のボリュームマウント追加
-DOCKER_OPTS="$DOCKER_OPTS -v /tmp:/host-tmp"
 
 # Dockerコンテナを起動
 echo "Starting Docker-in-Docker container..."
@@ -59,22 +55,73 @@ timeout 30s \
   grep -q -m1 "/var/run/docker.sock" \
     <(docker logs -f youki-test-dind 2>&1)
 
-# デバッグ用にログ設定を変更
-docker exec -i youki-test-dind sh -c "mkdir -p /etc/youki"
-docker exec -i youki-test-dind sh -c "echo -e '[log]\nlevel = \"debug\"\nfile = \"/host-tmp/youki-debug.log\"' > /etc/youki/config.toml"
+# ラッパースクリプトを作成
+echo "Creating youki wrapper script..."
+docker exec -i youki-test-dind sh -c "cat > /usr/bin/youki-wrapper << 'EOF'
+#!/bin/sh
+set -e
 
-# youkiが存在することを確認
-echo "Debug information:"
-docker exec -i youki-test-dind ls -la /usr/bin/youki
+# ログディレクトリを作成
+mkdir -p /tmp/youki-logs
+
+# 実行コマンドをログに記録
+echo \"[\$(date)] Running youki with args: \$@\" > /tmp/youki-logs/wrapper.log
+echo \"Environment:\" >> /tmp/youki-logs/wrapper.log
+env >> /tmp/youki-logs/wrapper.log
+
+# youkiを実行し、出力をキャプチャ
+/usr/bin/youki \"\$@\" > /tmp/youki-logs/stdout.log 2> /tmp/youki-logs/stderr.log || {
+  EXIT_CODE=\$?
+  echo \"youki failed with exit code \$EXIT_CODE\" >> /tmp/youki-logs/wrapper.log
+  exit \$EXIT_CODE
+}
+EOF"
+
+# 実行権限を付与
+docker exec -i youki-test-dind chmod +x /usr/bin/youki-wrapper
+
+# daemon.jsonを作成
+echo "Creating daemon.json with youki-wrapper..."
+docker exec -i youki-test-dind sh -c "cat > /etc/docker/daemon.json << 'EOF'
+{
+  \"runtimes\": {
+    \"youki\": {
+      \"path\": \"/usr/bin/youki-wrapper\"
+    }
+  }
+}
+EOF"
+
+# 必要なディレクトリを作成
+docker exec -i youki-test-dind mkdir -p /tmp/youki-logs
+
+# Dockerデーモンを再起動
+echo "Restarting Docker daemon..."
+docker exec -i youki-test-dind kill -SIGHUP 1
+sleep 5
+
+# 設定情報の確認
+echo "Configuration:"
 docker exec -i youki-test-dind cat /etc/docker/daemon.json
-docker exec -i youki-test-dind sh -c "ls -la /etc/youki || echo 'No config dir'"
-docker exec -i youki-test-dind sh -c "cat /etc/youki/config.toml || echo 'No config file'"
+docker exec -i youki-test-dind ls -la /usr/bin/youki /usr/bin/youki-wrapper
 
-# テスト実行（エラーになることを許容）
-echo "Running test with youki runtime (errors expected):"
-docker exec -i youki-test-dind docker run -q --runtime=youki hello-world || echo "Test failed as expected with exit code $?"
+# youkiバイナリのテスト
+echo "Testing youki binary directly:"
+docker exec -i youki-test-dind /usr/bin/youki --version || echo "youki version test failed with exit code $?"
 
-# ログを収集
-echo "Collecting logs:"
-docker exec -i youki-test-dind sh -c "cat /host-tmp/youki-debug.log || echo 'No log file found'"
-docker exec -i youki-test-dind sh -c "cat /var/log/docker.log 2>/dev/null || journalctl -u docker --no-pager 2>/dev/null || echo 'Docker logs not found'"
+# シンプルなテストケースで手動テスト
+echo "Manual container creation test:"
+docker exec -i youki-test-dind sh -c "mkdir -p /tmp/test-container"
+docker exec -i youki-test-dind sh -c "cd /tmp/test-container && /usr/bin/youki create test-container" || echo "Manual test failed with exit code $?"
+
+# テスト実行
+echo "Running test with youki runtime:"
+docker exec -i youki-test-dind docker run -q --runtime=youki hello-world || echo "Test failed with exit code $?"
+
+# ログの収集
+echo "Wrapper logs:"
+docker exec -i youki-test-dind cat /tmp/youki-logs/wrapper.log || echo "No wrapper logs found"
+echo "Stdout logs:"
+docker exec -i youki-test-dind cat /tmp/youki-logs/stdout.log || echo "No stdout logs found"
+echo "Stderr logs:"
+docker exec -i youki-test-dind cat /tmp/youki-logs/stderr.log || echo "No stderr logs found"
