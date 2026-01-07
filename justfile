@@ -45,6 +45,10 @@ test-basic: test-unit test-doc
 test-unit:
     {{ cwd }}/scripts/cargo.sh test --lib --bins --all --all-targets --all-features --no-fail-fast -- --test-threads=1
 
+# run bpf example tests (requires cgroupsv2_devices feature)
+test-bpf:
+    {{ cwd }}/scripts/cargo.sh test -p libcgroups --example bpf --features cgroupsv2_devices
+
 # run cargo doc tests
 test-doc:
     {{ cwd }}/scripts/cargo.sh test --doc -- --test-threads=1

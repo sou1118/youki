@@ -201,6 +201,22 @@ mod tests {
 
     #[test]
     #[serial(libbpf_sys)] // mock contexts are shared
+    fn test_bpf_attach_error() {
+        // arrange
+        let attach = mock_libbpf_sys::bpf_prog_attach_context();
+
+        // expect
+        attach.expect().once().returning(|_, _, _, _| 1);
+
+        // act
+        let r = prog::attach(0, 0);
+
+        // assert
+        assert!(r.is_err());
+    }
+
+    #[test]
+    #[serial(libbpf_sys)] // mock contexts are shared
     fn test_bpf_load_error() {
         // eBPF uses 64-bit instructions
         let instruction_zero: &[u8] = &[0x0, 0x0, 0x0, 0x0];

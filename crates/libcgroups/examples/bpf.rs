@@ -90,6 +90,100 @@ mod bpf {
         };
         Ok(())
     }
+
+    #[cfg(test)]
+    mod tests {
+        use std::io::Write;
+
+        use oci_spec::runtime::LinuxDeviceType;
+        use tempfile::NamedTempFile;
+
+        use super::parse_cgroupv1_device_rules;
+
+        #[test]
+        fn test_parse_valid_json() {
+            // arrange
+            let mut file = NamedTempFile::new().unwrap();
+            let json = r#"[
+                {
+                    "allow": true,
+                    "type": "c",
+                    "major": 10,
+                    "minor": 200,
+                    "access": "rwm"
+                }
+            ]"#;
+            file.write_all(json.as_bytes()).unwrap();
+
+            // act
+            let result = parse_cgroupv1_device_rules(file.path());
+
+            // assert
+            assert!(result.is_ok());
+            let rules = result.unwrap();
+            assert_eq!(rules.len(), 1);
+            assert!(rules[0].allow());
+            assert_eq!(rules[0].typ(), Some(LinuxDeviceType::C));
+            assert_eq!(rules[0].major(), Some(10));
+            assert_eq!(rules[0].minor(), Some(200));
+            assert_eq!(rules[0].access(), &Some("rwm".to_string()));
+        }
+
+        #[test]
+        fn test_parse_multiple_rules() {
+            // arrange
+            let mut file = NamedTempFile::new().unwrap();
+            let json = r#"[
+                {"allow": true, "type": "c", "major": 1, "minor": 3, "access": "r"},
+                {"allow": false, "type": "b", "major": 8, "minor": 0, "access": "w"}
+            ]"#;
+            file.write_all(json.as_bytes()).unwrap();
+
+            // act
+            let result = parse_cgroupv1_device_rules(file.path());
+
+            // assert
+            assert!(result.is_ok());
+            let rules = result.unwrap();
+            assert_eq!(rules.len(), 2);
+        }
+
+        #[test]
+        fn test_parse_empty_array() {
+            // arrange
+            let mut file = NamedTempFile::new().unwrap();
+            file.write_all(b"[]").unwrap();
+
+            // act
+            let result = parse_cgroupv1_device_rules(file.path());
+
+            // assert
+            assert!(result.is_ok());
+            assert_eq!(result.unwrap().len(), 0);
+        }
+
+        #[test]
+        fn test_parse_invalid_json() {
+            // arrange
+            let mut file = NamedTempFile::new().unwrap();
+            file.write_all(b"not valid json").unwrap();
+
+            // act
+            let result = parse_cgroupv1_device_rules(file.path());
+
+            // assert
+            assert!(result.is_err());
+        }
+
+        #[test]
+        fn test_parse_nonexistent_file() {
+            // act
+            let result = parse_cgroupv1_device_rules("/nonexistent/path/to/file.json");
+
+            // assert
+            assert!(result.is_err());
+        }
+    }
 }
 
 #[cfg(not(feature = "cgroupsv2_devices"))]

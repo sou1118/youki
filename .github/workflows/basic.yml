@@ -134,6 +134,8 @@ jobs:
         run: echo 0 | sudo tee /proc/sys/kernel/apparmor_restrict_unprivileged_userns
       - name: Run tests
         run: just test-basic
+      - name: Run bpf example tests
+        run: just test-bpf
       - name: Run feature tests
         run: just test-features
 
